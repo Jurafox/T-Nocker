@@ -1,7 +1,9 @@
 import pathlib
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import bpfdoor_local
 from bpfdoor_local import check_local
 
 
@@ -33,6 +35,20 @@ class LocalCheckTests(unittest.TestCase):
             report = check_local(proc)
         self.assertEqual(report["status"], "partial")
         self.assertEqual(report["unattributed_packet_socket_inodes"], ["999"])
+
+    def test_inaccessible_processes_are_counted_without_long_error_list(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proc = pathlib.Path(directory)
+            (proc / "net").mkdir()
+            (proc / "net/packet").write_text(
+                "sk RefCnt Type Proto Iface R Rmem User Inode\n"
+                "0000 3 2 0008 2 1 0 0 999\n", encoding="ascii")
+            (proc / "42").mkdir()
+            with patch.object(bpfdoor_local, "inspect_process", side_effect=PermissionError):
+                report = check_local(proc)
+        self.assertEqual(report["status"], "partial")
+        self.assertEqual(report["inaccessible_processes"], 1)
+        self.assertEqual(report["errors"], [])
 
 
 if __name__ == "__main__":
