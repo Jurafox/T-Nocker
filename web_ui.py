@@ -99,7 +99,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
             return self.send_data(415, {"error": "JSON erforderlich."})
         path = urlparse(self.path).path
-        limit = 1_500_000 if path == "/api/modules/wireshark_fields/run" else 4096
+        limit = 1_500_000 if path.startswith("/api/modules/") and path.endswith("/run") else 4096
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length <= limit:
