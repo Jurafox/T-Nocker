@@ -1,0 +1,14 @@
+{
+  "name": "t-nocker-ui",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": { "build": "vite build" },
+  "dependencies": {
+    "@blueprintjs/core": "^6.20.0",
+    "@blueprintjs/icons": "^6.11.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": { "vite": "^7.3.0" }
+}
