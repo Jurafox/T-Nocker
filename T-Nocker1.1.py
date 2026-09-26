@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
-"""Small, sequential TCP connect scanner for authorized targets."""
+"""Sequential TCP connect scanner for explicitly authorized targets."""
 
 import argparse
 import errno
+import math
 import socket
 import sys
 import time
+
+EXPECTED_RESULTS = {
+    errno.ECONNREFUSED,
+    errno.ETIMEDOUT,
+    errno.EHOSTUNREACH,
+    errno.ENETUNREACH,
+    errno.EADDRNOTAVAIL,
+}
 
 
 def port_number(value):
@@ -22,8 +31,8 @@ def timeout_seconds(value):
     try:
         timeout = float(value)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError("timeout must be a number greater than zero") from exc
-    if not 0 < timeout <= 60:
+        raise argparse.ArgumentTypeError("timeout must be greater than zero and at most 60 seconds") from exc
+    if not math.isfinite(timeout) or not 0 < timeout <= 60:
         raise argparse.ArgumentTypeError("timeout must be greater than zero and at most 60 seconds")
     return timeout
 
@@ -31,7 +40,7 @@ def timeout_seconds(value):
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Sequential TCP connect scan of one host. Scan only systems you own or are explicitly authorized to test.",
-        epilog="A closed port is not displayed; filtered or unreachable ports may time out. Use only within the scope and time window of your authorization.",
+        epilog="A port without an 'Open' line may be closed, filtered or unreachable. Stay within your authorized scope and time window.",
     )
     parser.add_argument("host", help="hostname or IPv4/IPv6 address")
     parser.add_argument("start_port", type=port_number)
@@ -45,29 +54,39 @@ def parse_args(argv=None):
 
 
 def resolve(host):
-    addresses = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-    # Preserve DNS order; avoid duplicate attempts for the same address.
-    return list(dict.fromkeys((family, sockaddr[0]) for family, _, _, _, sockaddr in addresses))
+    records = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP)
+    # Keep the entire IPv6 sockaddr, including its scope ID for link-local addresses.
+    return list(dict.fromkeys((family, sockaddr) for family, _, _, _, sockaddr in records))
+
+
+def endpoint(family, sockaddr, port):
+    address = sockaddr[0]
+    if family == socket.AF_INET6:
+        return f"[{address}%{sockaddr[3]}]:{port}" if sockaddr[3] else f"[{address}]:{port}"
+    return f"{address}:{port}"
 
 
 def scan(addresses, start_port, end_port, timeout):
     open_ports = []
-    errors = set()
+    errors = []
     for port in range(start_port, end_port + 1):
-        for family, address in addresses:
+        for family, sockaddr in addresses:
+            destination = (sockaddr[0], port, *sockaddr[2:])
+            label = endpoint(family, sockaddr, port)
             try:
                 with socket.socket(family, socket.SOCK_STREAM) as sock:
                     sock.settimeout(timeout)
-                    result = sock.connect_ex((address, port))
+                    result = sock.connect_ex(destination)
+            except socket.timeout:
+                continue
             except OSError as exc:
-                errors.add(f"{address}:{port}: {exc}")
+                errors.append(f"{label}: {exc}")
                 continue
             if result == 0:
-                open_ports.append((address, port))
-                print(f"Open: {address}:{port}")
-            elif result not in (errno.ECONNREFUSED, errno.ETIMEDOUT, errno.EHOSTUNREACH,
-                                errno.ENETUNREACH, errno.EADDRNOTAVAIL):
-                errors.add(f"{address}:{port}: {errno.errorcode.get(result, result)}")
+                open_ports.append(label)
+                print(f"Open: {label}")
+            elif result not in EXPECTED_RESULTS:
+                errors.append(f"{label}: {errno.errorcode.get(result, result)}")
     return open_ports, errors
 
 
@@ -75,8 +94,8 @@ def main(argv=None):
     args = parse_args(argv)
     try:
         addresses = resolve(args.host)
-    except socket.gaierror as exc:
-        print(f"DNS resolution failed for {args.host!r}: {exc}", file=sys.stderr)
+    except (socket.gaierror, OSError) as exc:
+        print(f"Host resolution failed for {args.host!r}: {exc}", file=sys.stderr)
         return 2
     if not addresses:
         print(f"No TCP addresses found for {args.host!r}", file=sys.stderr)
@@ -87,7 +106,7 @@ def main(argv=None):
     except KeyboardInterrupt:
         print("\nScan interrupted.", file=sys.stderr)
         return 130
-    for error in sorted(errors):
+    for error in errors:
         print(f"Scan error: {error}", file=sys.stderr)
     print(f"Complete: {len(open_ports)} open endpoint(s), {time.monotonic() - start:.2f}s")
     return 1 if errors else 0
