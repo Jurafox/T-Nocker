@@ -14,3 +14,9 @@ Ports must be between 1 and 65535, with the start no greater than the end. The t
 Only scan systems you own or for which you have explicit permission, within the agreed scope and time window. Check the applicable law, network policy, and provider terms before scanning. This notice is general guidance, not legal advice.
 
 Exit codes: `0` completed without unexpected socket errors; `1` one or more socket errors; `2` invalid host resolution; `130` interrupted. Invalid CLI arguments are rejected by argparse with exit code `2`.
+
+## Tests
+
+```sh
+python3 -m unittest discover -s tests -v
+```
