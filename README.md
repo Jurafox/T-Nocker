@@ -42,6 +42,18 @@ python3 -m unittest discover -s tests -v
 python3 web_ui.py
 ```
 
-Öffne `http://127.0.0.1:8765` im Browser. Die Anwendung bindet ausschließlich an `127.0.0.1` und benötigt keine Zusatzpakete. `web_ui.py`, `T-Nocker1.1.py`, `bpfdoor_local.py` und der Ordner `ui` müssen nebeneinander liegen. Im Browser kannst du einen autorisierten TCP-Scan starten, den lokalen Packet-Socket-Check ausführen, die letzten zwei vergleichbaren Scans dieser Sitzung gegenüberstellen und die aktuelle Beobachtung als JSON für SORS herunterladen. Ohne Administratorrechte kann der lokale Check `partial` melden. Die letzten Ergebnisse liegen nur im Arbeitsspeicher und verschwinden beim Beenden des Servers.
+Öffne `http://127.0.0.1:8765` im Browser. Die Anwendung bindet ausschließlich an `127.0.0.1`. Das bereitgestellte Paket enthält die gebaute React-Oberfläche mit Palantirs quelloffenem Blueprint-Toolkit und benötigt zum Start nur Python 3. `web_ui.py`, `T-Nocker1.1.py`, `bpfdoor_local.py` und `frontend/dist` müssen nebeneinander liegen. Im Browser kannst du einen autorisierten TCP-Scan starten, den lokalen Packet-Socket-Check ausführen, die letzten zwei vergleichbaren Scans dieser Sitzung gegenüberstellen und die aktuelle Beobachtung als JSON für SORS herunterladen. Ohne Administratorrechte kann der lokale Check `partial` melden. Die letzten Ergebnisse liegen nur im Arbeitsspeicher und verschwinden beim Beenden des Servers.
 
-Die Browseroberfläche begrenzt einzelne Scans auf 256 Ports, acht aufgelöste Adressen und ein rechnerisches Zeitbudget von 30 Sekunden. Sie führt keine Remote-BPFDoor-Prüfung durch; der lokale Check betrifft immer den Rechner, auf dem der Server läuft. Die Weboberfläche ist ein eigenständiges Analysewerkzeug und verwendet keine Bestandteile oder Markenoberfläche von Palantir.
+Aus einem Git-Checkout baust du das Frontend einmal mit Node.js und npm:
+
+```sh
+cd frontend
+npm ci
+npm run build
+cd ..
+python3 web_ui.py
+```
+
+Wenn `frontend/dist` noch nicht existiert, zeigt der Python-Server vorübergehend die frühere HTML-Oberfläche aus `ui` an. Der Quellcode der React-Oberfläche liegt unter `frontend/src`; ihre Komponenten stammen aus `@blueprintjs/core`. Backend und SORS-Datenschema bleiben davon unabhängig.
+
+Die Browseroberfläche begrenzt einzelne Scans auf 256 Ports, acht aufgelöste Adressen und ein rechnerisches Zeitbudget von 30 Sekunden. Sie führt keine Remote-BPFDoor-Prüfung durch; der lokale Check betrifft immer den Rechner, auf dem der Server läuft. Die Anwendung nutzt das unter Apache 2.0 veröffentlichte Blueprint-Toolkit, jedoch keine Palantir-Plattform oder proprietäre Gotham-Bestandteile.
