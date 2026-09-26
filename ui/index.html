@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d141b">
+  <meta name="description" content="Lokale Analyseoberfläche für T-Nocker Scan-Beobachtungen und SORS-Export.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d141b'/%3E%3Cpath d='M6 16h8l4-8 4 16 4-8' fill='none' stroke='%2349c6bb' stroke-width='2.5'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+  <title>T-Nocker | Analyse</title>
+</head>
+<body>
+<div class="shell">
+  <aside class="rail" aria-label="Bereiche">
+    <div class="brand"><span class="brand-icon">T</span><span><strong>T-Nocker</strong><small>Analysekonsole</small></span></div>
+    <div class="rail-label">ARBEITSBEREICH</div>
+    <a class="nav active" href="#overview"><span class="nav-mark">◈</span> Übersicht</a>
+    <a class="nav" href="#endpoints"><span class="nav-mark">⌘</span> Endpunkte</a>
+    <a class="nav" href="#local"><span class="nav-mark">◎</span> Lokaler Check</a>
+    <div class="rail-bottom"><span class="loop-dot"></span> Lokal · 127.0.0.1<br><small>Keine Cloud-Verbindung</small></div>
+  </aside>
+  <main id="overview">
+    <header class="topbar"><div class="crumb">Arbeitsbereich <span>/</span> Netzwerkbeobachtung</div><div class="top-right"><span class="mode">LIVE · LOKAL</span><span id="clock"></span></div></header>
+    <div class="workspace">
+      <div class="page-title"><div><p class="eyebrow">T-NOCKER / SORS</p><h1>Netzwerkzustand</h1><p>Offene TCP-Endpunkte und lokale Packet-Socket-Hinweise untersuchen.</p></div><button id="export" class="secondary" disabled>JSON für SORS ⤓</button></div>
+      <section class="scanbar" aria-label="Scan starten">
+        <form id="scan-form">
+          <label>ZIELSYSTEM<input id="host" value="127.0.0.1" autocomplete="off" spellcheck="false" required></label>
+          <label>VON PORT<input id="start" type="number" min="1" max="65535" value="20" required></label>
+          <label>BIS PORT<input id="end" type="number" min="1" max="65535" value="25" required></label>
+          <label>TIMEOUT / S<input id="timeout" type="number" min="0.01" max="60" step="0.01" value="0.5" required></label>
+          <button id="run" type="submit" class="primary">TCP-Scan starten <span>→</span></button>
+          <label class="consent"><input id="authorized" type="checkbox"> Ich bin berechtigt, dieses Ziel zu prüfen.</label>
+        </form>
+      </section>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <section class="metrics" aria-label="Zusammenfassung">
+        <article class="metric"><span>OFFENE ENDPUNKTE</span><strong id="open-count">—</strong><small id="open-delta">Noch kein Scan</small></article>
+        <article class="metric"><span>SCANSTATUS</span><strong id="scan-status">—</strong><small id="scan-time">Bereit</small></article>
+        <article class="metric"><span>LOKALE PACKET-SOCKETS</span><strong id="socket-count">—</strong><small id="local-status">Nicht geprüft</small></article>
+        <article class="metric"><span>UNTERSUCHUNGSBEFUNDE</span><strong id="lead-count">—</strong><small>Kein Malware-Urteil</small></article>
+      </section>
+      <div class="panels">
+        <section class="panel endpoints" id="endpoints">
+          <div class="panel-head"><div><p class="eyebrow">01 / NETZWERK</p><h2>Endpunkte</h2></div><span id="target-pill" class="pill">Noch kein Ziel</span></div>
+          <div id="network-view" class="network-view empty"><div class="empty-message"><span class="empty-symbol">⌁</span><strong>Keine Beobachtung vorhanden</strong><p>Starte oben einen Scan. Offene Endpunkte erscheinen hier mit ihrem Ziel.</p></div></div>
+          <div class="table-head"><span>ENDPUNKT</span><span>BEOBACHTUNG</span><span>ÄNDERUNG</span></div>
+          <div id="endpoint-list" class="endpoint-list"><div class="row-muted">Noch keine Daten</div></div>
+        </section>
+        <section class="panel local" id="local">
+          <div class="panel-head"><div><p class="eyebrow">02 / LOKALER HOST</p><h2>Packet-Socket-Check</h2></div><span class="pill subtle">Linux /proc</span></div>
+          <p class="panel-explainer">Ordnet Packet-Sockets lokalen Prozessen zu. Dieser Check betrifft deinen Rechner, unabhängig vom Scanziel.</p>
+          <button id="local-run" class="outline">Lokalen Check starten <span>↗</span></button>
+          <div id="local-summary" class="local-summary"><div class="row-muted">Noch keine lokale Prüfung. Ohne Administratorrechte kann die Abdeckung unvollständig sein.</div></div>
+          <div id="process-list" class="process-list"></div>
+        </section>
+      </div>
+      <section class="panel history"><div class="panel-head"><div><p class="eyebrow">03 / VERLAUF</p><h2>Veränderungen</h2></div><span class="pill subtle">Letzte zwei Scans dieser Sitzung</span></div><div id="changes" class="changes row-muted">Nach zwei vergleichbaren Scans werden neue und verschwundene offene Endpunkte angezeigt.</div></section>
+      <footer>Beobachtungen sind Momentaufnahmen. Nicht sichtbare Ports können geschlossen, gefiltert oder unerreichbar sein. Ein lokaler Indikator ist kein Infektionsnachweis.</footer>
+    </div>
+  </main>
+</div>
+<script src="/app.js" defer></script>
+</body>
+</html>
