@@ -146,8 +146,15 @@ def main(argv=None):
         print(f"Local packet-socket check: {local_report['status']}")
         for process in local_report["processes"]:
             print(f"  PID {process['pid']}: {process['assessment']} ({', '.join(process['signals'])})")
+        if local_report.get("inaccessible_processes"):
+            count = local_report["inaccessible_processes"]
+            print(f"  Incomplete coverage: cannot inspect {count} process(es); try a trusted administrator session for a fuller check.",
+                  file=sys.stderr)
+        if local_report.get("unattributed_packet_socket_inodes"):
+            count = len(local_report["unattributed_packet_socket_inodes"])
+            print(f"  {count} packet socket(s) could not be attributed to a process.", file=sys.stderr)
         if local_report.get("errors"):
-            print(f"  {len(local_report['errors'])} process inspection error(s)", file=sys.stderr)
+            print(f"  {len(local_report['errors'])} other inspection error(s)", file=sys.stderr)
     if args.sors_export is not None:
         observation = sors_observation(args, addresses, open_ports, errors, elapsed, local_report)
         try:
