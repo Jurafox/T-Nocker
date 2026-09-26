@@ -1,59 +1,35 @@
 #!/usr/bin/env python3
-"""Local browser UI for T-Nocker. Binds only to loopback."""
+"""Local SORS matrix UI. Binds only to loopback."""
 
 import argparse
-import importlib.util
 import json
 from pathlib import Path
-import socket
 import sys
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+from sors_modules import load_registry
+
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "frontend" / "dist" if (ROOT / "frontend" / "dist" / "index.html").exists() else ROOT / "ui"
-spec = importlib.util.spec_from_file_location("t_nocker", ROOT / "T-Nocker1.1.py")
-scanner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(scanner)
+REGISTRY = load_registry()
 
 STATE = {"current": None, "previous": None, "local": None}
+OBSERVATIONS = []
 LOCK = threading.Lock()
 SCAN_LOCK = threading.Lock()
 
 
 def run_scan(data):
-    if not isinstance(data, dict) or data.get("authorized") is not True:
-        raise ValueError("Bestätige die Berechtigung für das Zielsystem.")
-    host = data.get("host")
-    if not isinstance(host, str) or not host or len(host) > 253 or any(c.isspace() for c in host):
-        raise ValueError("Gib einen gültigen Hostnamen oder eine IP-Adresse ein.")
-    try:
-        start = scanner.port_number(str(data.get("start")))
-        end = scanner.port_number(str(data.get("end")))
-        timeout = scanner.timeout_seconds(str(data.get("timeout", 0.5)))
-    except argparse.ArgumentTypeError as exc:
-        raise ValueError(str(exc)) from exc
-    if start > end or end - start + 1 > 256:
-        raise ValueError("Wähle einen aufsteigenden Bereich mit höchstens 256 Ports.")
-    try:
-        addresses = scanner.resolve(host)
-    except OSError as exc:
-        raise ValueError(f"DNS-Auflösung fehlgeschlagen: {exc}") from exc
-    if not addresses or len(addresses) > 8:
-        raise ValueError("Das Ziel liefert keine oder zu viele TCP-Adressen (maximal 8).")
-    if (end - start + 1) * len(addresses) * timeout > 30:
-        raise ValueError("Der Bereich kann zu lange dauern. Reduziere Ports oder Timeout (Budget: 30 s).")
-    # Capture scanner output; only structured results reach the browser.
-    import contextlib
-    import io
-    started = time.monotonic()
-    with contextlib.redirect_stdout(io.StringIO()):
-        opened, errors = scanner.scan(addresses, start, end, timeout)
-    elapsed = time.monotonic() - started
-    args = argparse.Namespace(host=host, start_port=start, end_port=end, timeout=timeout)
-    return scanner.sors_observation(args, addresses, opened, errors, elapsed)
+    """Compatibility result for the existing scan view."""
+    return REGISTRY.run("t_nocker", data)["coverage"]["legacy_snapshot"]
+
+
+def remember(item):
+    with LOCK:
+        OBSERVATIONS.append(item)
+        del OBSERVATIONS[:-100]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -82,6 +58,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/state":
             with LOCK:
                 return self.send_data(200, STATE.copy())
+        if path == "/api/modules":
+            return self.send_data(200, {"modules": REGISTRY.manifests()})
+        if path == "/api/observations":
+            with LOCK:
+                return self.send_data(200, {"schema": "sors.observations.v1", "items": OBSERVATIONS.copy()})
         if path == "/api/export":
             with LOCK:
                 snapshot = STATE["current"]
@@ -91,6 +72,8 @@ class Handler(BaseHTTPRequestHandler):
             output = dict(snapshot)
             if local is not None:
                 output["local_bpfdoor_indicators"] = local
+            with LOCK:
+                output["sors_observations"] = OBSERVATIONS.copy()
             return self.send_data(200, output)
         relative = "index.html" if path in ("/", "/index.html") else path.lstrip("/")
         file = (STATIC / relative).resolve()
@@ -115,22 +98,26 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_data(403, {"error": "Ungültiger Ursprung."})
         if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
             return self.send_data(415, {"error": "JSON erforderlich."})
+        path = urlparse(self.path).path
+        limit = 1_500_000 if path == "/api/modules/wireshark_fields/run" else 4096
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= 4096:
+            if not 0 < length <= limit:
                 raise ValueError("Ungültige Anfragegröße.")
             data = json.loads(self.rfile.read(length))
         except (ValueError, json.JSONDecodeError):
             return self.send_data(400, {"error": "Ungültige JSON-Anfrage."})
-        path = urlparse(self.path).path
         if path == "/api/scan":
             if not SCAN_LOCK.acquire(blocking=False):
                 return self.send_data(409, {"error": "Ein Scan läuft bereits."})
             try:
-                snapshot = run_scan(data)
+                result_observation = REGISTRY.run("t_nocker", data)
+                snapshot = result_observation["coverage"]["legacy_snapshot"]
                 with LOCK:
                     STATE["previous"] = STATE["current"]
                     STATE["current"] = snapshot
+                    OBSERVATIONS.append(result_observation)
+                    del OBSERVATIONS[:-100]
                     result = STATE.copy()
                 return self.send_data(200, result)
             except ValueError as exc:
@@ -138,23 +125,38 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 SCAN_LOCK.release()
         if path == "/api/local":
-            from bpfdoor_local import check_local
-            report = check_local()
+            result_observation = REGISTRY.run("packet_sockets", data)
+            report = result_observation["coverage"]["report"]
             with LOCK:
                 STATE["local"] = report
+                OBSERVATIONS.append(result_observation)
+                del OBSERVATIONS[:-100]
                 result = STATE.copy()
             return self.send_data(200, result)
+        if path.startswith("/api/modules/") and path.endswith("/run"):
+            module_id = path.split("/")[3]
+            manifest = next((m for m in REGISTRY.manifests() if m["id"] == module_id), None)
+            if manifest is None:
+                return self.send_data(404, {"error": "Modul nicht installiert."})
+            if manifest["input_kind"] != "text_file":
+                return self.send_data(400, {"error": "Dieses Modul verwendet seinen eigenen geschützten Ablauf."})
+            try:
+                item = REGISTRY.run(module_id, data)
+            except ValueError as exc:
+                return self.send_data(400, {"error": str(exc)})
+            remember(item)
+            return self.send_data(200, {"observation": item})
         return self.send_data(404, {"error": "Nicht gefunden."})
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Lokale T-Nocker Browseroberfläche")
+    parser = argparse.ArgumentParser(description="Lokale SORS Matrix")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535:
         parser.error("Port muss zwischen 1024 und 65535 liegen")
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    print(f"T-Nocker: http://127.0.0.1:{args.port}", flush=True)
+    print(f"SORS: http://127.0.0.1:{args.port}", flush=True)
     print("Beenden mit Ctrl+C", flush=True)
     try:
         server.serve_forever()
