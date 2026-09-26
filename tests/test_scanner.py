@@ -1,8 +1,10 @@
 import contextlib
 import importlib.util
 import io
+import json
 import pathlib
 import socket
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -86,6 +88,33 @@ class ScannerTests(unittest.TestCase):
             code = scanner.main(["invalid.example", "1", "2"])
         self.assertEqual(code, 2)
         self.assertIn("Host resolution failed", errors.getvalue())
+
+    def test_sors_export_contains_observation_not_risk_guess(self):
+        FakeSocket.outcomes = [0]
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = pathlib.Path(directory) / "scan.json"
+            with patch.object(scanner, "resolve", return_value=[(socket.AF_INET, ("127.0.0.1", 0))]), \
+                 patch.object(scanner.socket, "socket", FakeSocket), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                code = scanner.main(["localhost", "443", "443", "--sors-export", str(output_path)])
+            observation = json.loads(output_path.read_text(encoding="utf-8"))
+        self.assertEqual(code, 0)
+        self.assertEqual(observation["schema"], "t-nocker.scan.v1")
+        self.assertEqual(observation["target"], "localhost")
+        self.assertEqual(observation["open_endpoints"], ["127.0.0.1:443"])
+        self.assertEqual(observation["status"], "complete")
+        self.assertNotIn("risk_score", observation)
+
+    def test_sors_export_write_failure_is_reported(self):
+        FakeSocket.outcomes = [0]
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(scanner, "resolve", return_value=[(socket.AF_INET, ("127.0.0.1", 0))]), \
+                 patch.object(scanner.socket, "socket", FakeSocket), \
+                 contextlib.redirect_stdout(io.StringIO()), \
+                 contextlib.redirect_stderr(io.StringIO()) as errors:
+                code = scanner.main(["localhost", "443", "443", "--sors-export", directory])
+        self.assertEqual(code, 1)
+        self.assertIn("Could not write SORS export", errors.getvalue())
 
 
 if __name__ == "__main__":
