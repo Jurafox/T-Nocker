@@ -2,8 +2,11 @@
 """Sequential TCP connect scanner for explicitly authorized targets."""
 
 import argparse
+from datetime import datetime, timezone
 import errno
+import json
 import math
+from pathlib import Path
 import socket
 import sys
 import time
@@ -15,6 +18,8 @@ EXPECTED_RESULTS = {
     errno.ENETUNREACH,
     errno.EADDRNOTAVAIL,
 }
+
+
 
 
 def port_number(value):
@@ -47,6 +52,8 @@ def parse_args(argv=None):
     parser.add_argument("end_port", type=port_number)
     parser.add_argument("--timeout", type=timeout_seconds, default=1.0, metavar="SECONDS",
                         help="connection timeout per address (default: 1.0; maximum: 60)")
+    parser.add_argument("--sors-export", metavar="FILE", type=Path,
+                        help="write a versioned JSON scan observation for later SORS ingestion")
     args = parser.parse_args(argv)
     if args.start_port > args.end_port:
         parser.error("start_port must not exceed end_port")
@@ -90,6 +97,26 @@ def scan(addresses, start_port, end_port, timeout):
     return open_ports, errors
 
 
+def sors_observation(args, addresses, open_ports, errors, elapsed):
+    """Stable scan facts; learning and risk assessment belong to SORS."""
+    return {
+        "schema": "t-nocker.scan.v1",
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "target": args.host,
+        "resolved_addresses": [
+            {"family": "IPv6" if family == socket.AF_INET6 else "IPv4",
+             "address": sockaddr[0], "scope_id": sockaddr[3] if family == socket.AF_INET6 else 0}
+            for family, sockaddr in addresses
+        ],
+        "ports": {"start": args.start_port, "end": args.end_port},
+        "timeout_seconds": args.timeout,
+        "status": "partial" if errors else "complete",
+        "open_endpoints": open_ports,
+        "scan_errors": errors,
+        "duration_seconds": round(elapsed, 3),
+    }
+
+
 def main(argv=None):
     args = parse_args(argv)
     try:
@@ -106,9 +133,18 @@ def main(argv=None):
     except KeyboardInterrupt:
         print("\nScan interrupted.", file=sys.stderr)
         return 130
+    elapsed = time.monotonic() - start
+    if args.sors_export is not None:
+        observation = sors_observation(args, addresses, open_ports, errors, elapsed)
+        try:
+            args.sors_export.write_text(json.dumps(observation, indent=2, ensure_ascii=False) + "\n",
+                                        encoding="utf-8")
+        except OSError as exc:
+            print(f"Could not write SORS export {args.sors_export}: {exc}", file=sys.stderr)
+            return 1
     for error in errors:
         print(f"Scan error: {error}", file=sys.stderr)
-    print(f"Complete: {len(open_ports)} open endpoint(s), {time.monotonic() - start:.2f}s")
+    print(f"Complete: {len(open_ports)} open endpoint(s), {elapsed:.2f}s")
     return 1 if errors else 0
 
 
