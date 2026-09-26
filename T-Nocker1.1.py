@@ -11,6 +11,8 @@ import socket
 import sys
 import time
 
+from bpfdoor_local import check_local
+
 EXPECTED_RESULTS = {
     errno.ECONNREFUSED,
     errno.ETIMEDOUT,
@@ -54,6 +56,8 @@ def parse_args(argv=None):
                         help="connection timeout per address (default: 1.0; maximum: 60)")
     parser.add_argument("--sors-export", metavar="FILE", type=Path,
                         help="write a versioned JSON scan observation for later SORS ingestion")
+    parser.add_argument("--local-bpfdoor-check", action="store_true",
+                        help="read-only packet-socket process check on this Linux host")
     args = parser.parse_args(argv)
     if args.start_port > args.end_port:
         parser.error("start_port must not exceed end_port")
@@ -97,9 +101,9 @@ def scan(addresses, start_port, end_port, timeout):
     return open_ports, errors
 
 
-def sors_observation(args, addresses, open_ports, errors, elapsed):
+def sors_observation(args, addresses, open_ports, errors, elapsed, local_report=None):
     """Stable scan facts; learning and risk assessment belong to SORS."""
-    return {
+    observation = {
         "schema": "t-nocker.scan.v1",
         "observed_at": datetime.now(timezone.utc).isoformat(),
         "target": args.host,
@@ -115,6 +119,9 @@ def sors_observation(args, addresses, open_ports, errors, elapsed):
         "scan_errors": errors,
         "duration_seconds": round(elapsed, 3),
     }
+    if local_report is not None:
+        observation["local_bpfdoor_indicators"] = local_report
+    return observation
 
 
 def main(argv=None):
@@ -134,8 +141,15 @@ def main(argv=None):
         print("\nScan interrupted.", file=sys.stderr)
         return 130
     elapsed = time.monotonic() - start
+    local_report = check_local() if args.local_bpfdoor_check else None
+    if local_report is not None:
+        print(f"Local packet-socket check: {local_report['status']}")
+        for process in local_report["processes"]:
+            print(f"  PID {process['pid']}: {process['assessment']} ({', '.join(process['signals'])})")
+        if local_report.get("errors"):
+            print(f"  {len(local_report['errors'])} process inspection error(s)", file=sys.stderr)
     if args.sors_export is not None:
-        observation = sors_observation(args, addresses, open_ports, errors, elapsed)
+        observation = sors_observation(args, addresses, open_ports, errors, elapsed, local_report)
         try:
             args.sors_export.write_text(json.dumps(observation, indent=2, ensure_ascii=False) + "\n",
                                         encoding="utf-8")
@@ -145,7 +159,7 @@ def main(argv=None):
     for error in errors:
         print(f"Scan error: {error}", file=sys.stderr)
     print(f"Complete: {len(open_ports)} open endpoint(s), {elapsed:.2f}s")
-    return 1 if errors else 0
+    return 1 if errors or (local_report is not None and local_report["status"] != "complete") else 0
 
 
 if __name__ == "__main__":
