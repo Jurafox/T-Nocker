@@ -3,6 +3,7 @@
 import csv
 import io
 import ipaddress
+import math
 from collections import Counter
 
 from sors_modules import observation
@@ -37,7 +38,9 @@ class WiresharkFields:
                 port = int(row["tcp.dstport"] or row["udp.dstport"])
                 if not 1 <= port <= 65535 or not row["frame.time_epoch"]:
                     raise ValueError("Missing field")
-                float(row["frame.time_epoch"])
+                timestamp = float(row["frame.time_epoch"])
+                if not math.isfinite(timestamp) or timestamp < 0:
+                    raise ValueError("Invalid timestamp")
                 flows[(str(src), str(dst), protocol, port)] += 1
             except (ValueError, TypeError, KeyError):
                 invalid += 1
