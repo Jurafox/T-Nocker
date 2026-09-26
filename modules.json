@@ -1,0 +1,5 @@
+[
+  {"python_module": "sors_plugins.port_scan", "enabled": true},
+  {"python_module": "sors_plugins.packet_sockets", "enabled": true},
+  {"python_module": "sors_plugins.wireshark_fields", "enabled": true}
+]
