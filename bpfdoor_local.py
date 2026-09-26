@@ -75,9 +75,11 @@ def check_local(proc=Path("/proc")):
     if not sockets:
         return {"status": "complete", "processes": [],
                 "unattributed_packet_socket_inodes": [], "errors": [],
+                "inaccessible_processes": 0,
                 "note": "No packet sockets visible in this network namespace at this instant; this does not exclude BPFDoor."}
     processes = []
     errors = []
+    inaccessible = 0
     try:
         pids = sorted(int(p.name) for p in proc.iterdir() if p.name.isdecimal())
     except OSError as exc:
@@ -86,7 +88,7 @@ def check_local(proc=Path("/proc")):
         try:
             process = inspect_process(proc, pid, sockets)
         except PermissionError:
-            errors.append(f"PID {pid}: access denied")
+            inaccessible += 1
             continue
         except OSError as exc:
             errors.append(f"PID {pid}: {exc}")
@@ -94,8 +96,9 @@ def check_local(proc=Path("/proc")):
         if process:
             processes.append(process)
     owned = {s["inode"] for process in processes for s in process["sockets"]}
-    return {"status": "partial" if errors or set(sockets) - owned else "complete",
+    return {"status": "partial" if errors or inaccessible or set(sockets) - owned else "complete",
             "processes": processes,
             "unattributed_packet_socket_inodes": sorted(set(sockets) - owned),
+            "inaccessible_processes": inaccessible,
             "errors": errors,
             "note": "Packet sockets may be legitimate. This is a local indicator check, not BPFDoor confirmation."}
