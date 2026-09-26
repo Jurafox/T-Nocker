@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent
+STATIC = ROOT / "frontend" / "dist" if (ROOT / "frontend" / "dist" / "index.html").exists() else ROOT / "ui"
 spec = importlib.util.spec_from_file_location("t_nocker", ROOT / "T-Nocker1.1.py")
 scanner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(scanner)
@@ -91,11 +92,15 @@ class Handler(BaseHTTPRequestHandler):
             if local is not None:
                 output["local_bpfdoor_indicators"] = local
             return self.send_data(200, output)
-        if path not in ("/", "/index.html", "/style.css", "/app.js"):
+        relative = "index.html" if path in ("/", "/index.html") else path.lstrip("/")
+        file = (STATIC / relative).resolve()
+        if not file.is_relative_to(STATIC.resolve()) or not file.is_file():
             return self.send_data(404, {"error": "Nicht gefunden."})
-        file = "index.html" if path in ("/", "/index.html") else path.lstrip("/")
-        mime = "text/html" if file.endswith(".html") else "text/css" if file.endswith(".css") else "text/javascript"
-        raw = (ROOT / "ui" / file).read_bytes()
+        mime = ("text/html" if file.suffix == ".html" else "text/css" if file.suffix == ".css"
+                else "text/javascript" if file.suffix == ".js" else "font/woff2" if file.suffix == ".woff2"
+                else "font/woff" if file.suffix == ".woff" else "font/ttf" if file.suffix == ".ttf"
+                else "image/svg+xml" if file.suffix == ".svg" else "application/octet-stream")
+        raw = file.read_bytes()
         self.send_response(200)
         self.common_headers(mime + "; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
